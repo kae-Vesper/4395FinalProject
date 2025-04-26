@@ -36,12 +36,8 @@ if __name__ == '__main__':
     test_acc, test_loss = lr_model.test(test_data, hidden_dim)
     print("Test accuracy: ", test_acc)
 
-    #Naive Bayes model
-    ##TODO: write code for training and testing a logical regression model with TF-IDF
-    ##let me know what functions are needed to be included in the class for the model
+    #SVM model
 
 
 
     #BERT model
-    ##TODO: write code for training and testing a logical regression model with TF-IDF
-    ##let me know what functions are needed to be included in the class for the model
