@@ -1,9 +1,7 @@
 from time import perf_counter
-
-import numpy as np
 import torch
 import torch.nn as nn
-import time
+import json
 
 unk = '<UNK>'
 
@@ -27,6 +25,34 @@ def get_data():
         test.append((elt["message"].split(), int(elt["label"])))
 
     return tra, val, test
+
+def make_vocab(training_data):
+    vocab = set()
+    for document, _ in data:
+        for word in document:
+            vocab.add(word)
+    return vocab
+
+def make_indices(vocab):
+    vocab_list = sorted(vocab)
+    vocab_list.append(unk)
+    word2index = {}
+    index2word = {}
+    for index, word in enumerate(vocab_list):
+        word2index[word] = index
+        index2word[index] = word
+    vocab.add(unk)
+    return vocab, word2index, index2word
+
+def convert_to_vector(data, word2index):
+    vectorized_data = []
+    for document, y in data:
+        vector = torch.zeros(len(word2index))
+        for word in document:
+            index = word2index.get(word, word2index[unk])
+            vector[index] += 1
+        vectorized_data.append((vector, y))
+    return vectorized_data
 
 if __name__ == '__main__':
     #hyperparameters
