@@ -26,7 +26,7 @@ def get_data():
 
     return tra, val, test
 
-def make_vocab(training_data):
+def make_vocab(data):
     vocab = set()
     for document, _ in data:
         for word in document:
