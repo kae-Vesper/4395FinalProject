@@ -2,6 +2,7 @@ from time import perf_counter
 import torch
 import torch.nn as nn
 import json
+import csv
 
 unk = '<UNK>'
 
@@ -54,6 +55,20 @@ def convert_to_vector(data, word2index):
         vectorized_data.append((vector, y))
     return vectorized_data
 
+def test_model(name, model, test_data):
+    count = 0
+    accurate = 0
+    with open(f"./{name}.csv", 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(["message", "pred_label", "label", "confidence", "impactful words"])
+        for message, label in test_data:
+            pred_label, confidence, words = model.test(message)
+            if pred_label == label:
+                accurate += 1
+            writer.writerow([message, pred_label, label, confidence, words])
+            count += 1
+    return accurate/count
+
 if __name__ == '__main__':
     #hyperparameters
     hidden_dim = 256
@@ -88,7 +103,7 @@ if __name__ == '__main__':
     #test
     print("\n---------- Testing model -----------\n")
     start_time = perf_counter()
-    test_acc = lr_model.test(test_data)
+    test_acc = test_model("Logical_Regression_Model", lr_model, test_data)
     end_time = perf_counter()
     print("Test accuracy: ", test_acc)
     print(f"Testing time:  {end_time-start_time:.4f} seconds")
@@ -110,7 +125,7 @@ if __name__ == '__main__':
     # test
     print("\n---------- Testing model -----------\n")
     start_time = perf_counter()
-    test_acc = svm_model.test(test_data)
+    test_acc = test_model("SVM_Model", svm_model, test_data)
     end_time = perf_counter()
     print("Test accuracy: ", test_acc)
     print(f"Testing time:  {end_time - start_time:.4f} seconds")
@@ -132,7 +147,7 @@ if __name__ == '__main__':
     # test
     print("\n---------- Testing model -----------\n")
     start_time = perf_counter()
-    test_acc = bert_model.test(test_data)
+    test_acc = test_model("BERT_Model", bert_model, test_data)
     end_time = perf_counter()
     print("Test accuracy: ", test_acc)
     print(f"Testing time:  {end_time - start_time:.4f} seconds")
