@@ -17,7 +17,7 @@ def preprocess(text):
 
 # After that we will load the data
 def get_data():
-    label_map = {"ham": 0, "spam": 1}
+    label_map = {'ham': 0, 'spam': 1}
     datasets = {}
 
     for name in ["training.json", "validation.json", "test.json"]:
@@ -97,6 +97,7 @@ class LogisticRegressionModel(nn.Module):
 
         for epoch in range(epochs):
             epoch_loss = 0
+            print(f"Starting epoch {epoch+1}")
             for x, y in train_data:
                 y = torch.tensor([y], dtype=torch.float32)
                 optimizer.zero_grad()
@@ -106,7 +107,7 @@ class LogisticRegressionModel(nn.Module):
                 optimizer.step()
                 epoch_loss += loss.item()
             valid_acc = self.evaluate(valid_data)
-            print(f"Epoch {epoch+1}: Loss = {epoch_loss:.4f}, Validation Accuracy = {valid_acc:.2f}")
+            print(f"Epoch {epoch+1} finished: Loss = {epoch_loss:.4f}, Validation Accuracy = {valid_acc:.2f}")
 
     def evaluate(self, data):
         correct = 0
@@ -116,34 +117,43 @@ class LogisticRegressionModel(nn.Module):
                 correct += 1
         return correct / len(data)
 
-    def test(self, message, word2index):
-        vector = torch.zeros(len(word2index))
-        for word, score in message.items():
-            if word in word2index:
-                vector[word2index[word]] = score
+    def test(self, message_tensor, word2index):
+        # Create reverse index mapping
+        index2word = {i: word for word, i in word2index.items()}
 
-        pred_confidence = self.forward(vector).item()
+        # Get non-zero indices and scores
+        non_zero_indices = torch.nonzero(message_tensor).squeeze()
+        impactful_words = []
+
+        # Convert tensor to CPU for numpy conversion if needed
+        message_tensor = message_tensor.cpu()
+
+        # Extract top impactful words using weight matrix
+        weights = self.linear.weight[0].detach()
+        top_indices = torch.argsort(torch.abs(weights), descending=True)[:5]
+
+        impactful_words = [index2word[idx.item()] for idx in top_indices
+                           if idx.item() in index2word]
+
+        # Get prediction
+        pred_confidence = self.forward(message_tensor).item()
         pred_label = 1 if pred_confidence > 0.5 else 0
-
-        impactful_words = sorted(
-            message.keys(),
-            key=lambda w: abs(self.linear.weight[0][word2index[w]].item()),
-            reverse=True
-        )[:5]
 
         return pred_label, pred_confidence, impactful_words
 
-def test_model(name, model, test_data, word2index):
+def test_model(name, model, test_data, test_data_vector, word2index):
     correct = 0
     with open(f"{name}.csv", 'w', newline='') as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(["message", "pred_label", "label", "confidence", "impactful words"])
 
-        for message, label in test_data:
+        i=0
+        for message, label in test_data_vector:
             pred_label, confidence, words = model.test(message, word2index)
             if pred_label == label:
                 correct += 1
-            writer.writerow([message, pred_label, label, f"{confidence:.2f}", ", ".join(words)])
+            writer.writerow([test_data[i], pred_label, label, f"{confidence:.2f}", ", ".join(words)])
+            i = i+1
 
     return correct / len(test_data)
 
@@ -153,24 +163,27 @@ if __name__ == '__main__':
     train_data, valid_data, test_data = get_data()
 
     print("========== Computing TF-IDF ==========\n")
-    train_data = compute_tf_idf(train_data)
-    valid_data = compute_tf_idf(valid_data)
-    test_data = compute_tf_idf(test_data)
-    vocab = set(word for doc, _ in train_data for word in doc.keys())
-    train_data, word2index = convert_to_vector(train_data, vocab)
-    valid_data, _ = convert_to_vector(valid_data, vocab)
-    test_data, _ = convert_to_vector(test_data, vocab)
+    start_time = perf_counter()
+    train_data_vector = compute_tf_idf(train_data)
+    valid_data_vector = compute_tf_idf(valid_data)
+    test_data_vector = compute_tf_idf(test_data)
+    vocab = set(word for doc, _ in train_data_vector for word in doc.keys())
+    train_data_vector, word2index = convert_to_vector(train_data_vector, vocab)
+    valid_data_vector, _ = convert_to_vector(valid_data_vector, vocab)
+    test_data_vector, _ = convert_to_vector(test_data_vector, vocab)
+    end_time = perf_counter()
+    print(f"TF-IDF computation time: {end_time - start_time:.4f} seconds")
 
     print("========== Training Logistic Regression Model ==========\n")
     lr_model = LogisticRegressionModel(len(vocab))
     start_time = perf_counter()
-    lr_model.train_model(train_data, valid_data, epochs)
+    lr_model.train_model(train_data_vector, valid_data_vector, epochs)
     end_time = perf_counter()
     print(f"Training time: {end_time - start_time:.4f} seconds")
 
     print("\n========== Testing Model ==========\n")
     start_time = perf_counter()
-    test_acc = test_model("Logical_Regression_Model", lr_model, test_data, word2index)
+    test_acc = test_model("Logical_Regression_Model", lr_model, test_data, test_data_vector, word2index)
     end_time = perf_counter()
     print(f"Test accuracy: {test_acc:.2f}")
     print(f"Testing time: {end_time - start_time:.4f} seconds")
