@@ -87,7 +87,17 @@ def make_indices(vocab):
     vocab.add(unk)
     return vocab, word2index, index2word
 
-def convert_to_vector(data, word2index, vocab):
+def convert_to_vector(data, word2index):
+    vectorized_data = []
+    for document, y in data:
+        vector = torch.zeros(len(word2index))
+        for word in document:
+            index = word2index.get(word, word2index[unk])
+            vector[index] += 1
+        vectorized_data.append((vector, y))
+    return vectorized_data
+
+def convert_to_tf_vector(data, word2index, vocab):
     vectorized_data = []
     for document, y in data:
         vector = torch.zeros(len(vocab))
@@ -116,7 +126,7 @@ def test_model(name, model, test_data, test_data_vector, word2index):
 if __name__ == '__main__':
     #hyperparameters
     hidden_dim = 256
-    epochs = 10
+    epochs = 2
 
     #load data
     print("========== Loading data ==========\n")
@@ -124,7 +134,7 @@ if __name__ == '__main__':
     vocab = make_vocab(train_data)
     vocab, word2index, index2word = make_indices(vocab)
 
-    #Compute TF-IDF
+    """"#Compute TF-IDF
     print("========== Computing TF-TDF ==========")
     start_time = perf_counter()
     train_data_vector = compute_tf_idf(train_data)
@@ -134,11 +144,11 @@ if __name__ == '__main__':
     print(f"TF-IDF computation time: {end_time - start_time:.4f} seconds\n")
 
     #Vectorize data
-    print("========== Vectorizing data ==========")
+    print("========== Vectorizing data for TF-IDF ==========")
     start_time = perf_counter()
-    train_data_vector = convert_to_vector(train_data_vector, word2index, vocab)
-    valid_data_vector = convert_to_vector(valid_data_vector, word2index, vocab)
-    test_data_vector = convert_to_vector(test_data_vector, word2index, vocab)
+    train_data_vector = convert_to_tf_vector(train_data_vector, word2index, vocab)
+    valid_data_vector = convert_to_tf_vector(valid_data_vector, word2index, vocab)
+    test_data_vector = convert_to_tf_vector(test_data_vector, word2index, vocab)
     end_time = perf_counter()
     print(f"Vectorization time: {end_time - start_time: .4f} seconds \n")
 
@@ -161,12 +171,20 @@ if __name__ == '__main__':
     test_acc = test_model("Logical_Regression_Model", lr_model, test_data, test_data_vector, word2index)
     end_time = perf_counter()
     print(f"Test accuracy: {test_acc:.2f}")
-    print(f"Testing time:  {end_time-start_time:.4f} seconds\n")
+    print(f"Testing time:  {end_time-start_time:.4f} seconds\n")"""
 
     #SVM model
     print("========== Building SVM model ==========\n")
     # initialize model
     svm_model = SupportVectorClassifier()
+
+    print("---------- Vectorizing data for SVM ----------")
+    start_time = perf_counter()
+    train_data_vector = convert_to_vector(train_data, word2index)
+    valid_data_vector = convert_to_vector(valid_data, word2index)
+    test_data_vector = convert_to_vector(test_data, word2index)
+    end_time = perf_counter()
+    print(f"Vectorization time: {end_time - start_time: .4f} seconds \n")
 
     # train
     print("---------- Training model ----------")
