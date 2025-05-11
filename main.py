@@ -147,7 +147,7 @@ if __name__ == '__main__':
     word2index = indices["word2index"]
     index2word = indices["index2word"]
 
-    """"#Compute TF-IDF
+    #Compute TF-IDF
     print("========== Computing TF-TDF ==========")
     start_time = perf_counter()
     train_data_vector = compute_tf_idf(train_data)
@@ -184,7 +184,7 @@ if __name__ == '__main__':
     test_acc = test_model("Logical_Regression_Model", lr_model, test_data, test_data_vector, word2index)
     end_time = perf_counter()
     print(f"Test accuracy: {test_acc:.2f}")
-    print(f"Testing time:  {end_time-start_time:.4f} seconds\n")"""
+    print(f"Testing time:  {end_time-start_time:.4f} seconds\n")
 
     #SVM model
     print("========== Building SVM model ==========\n")
