@@ -69,23 +69,34 @@ def compute_tf_idf(data):
 
     return vectors
 
-def make_vocab(data):
-    vocab = set()
-    for document, _ in data:
-        for word in document:
-            vocab.add(word)
-    return vocab
 
+# Updated make_vocab with frequency-based trimming
+def make_vocab(data, max_words=10000, unk_threshold=5):
+    word_counts = defaultdict(int)
+    # Count all words in training data
+    for doc, _ in data:
+        for word in doc:
+            word_counts[word] += 1
+
+    # Filter rare words below threshold and keep top N
+    filtered_words = {word: count for word, count in word_counts.items()
+                      if count >= unk_threshold}
+    sorted_words = sorted(filtered_words.items(),
+                          key=lambda x: -x[1])[:max_words]
+
+    return {word for word, _ in sorted_words}
+
+
+# Updated make_indices with explicit UNK handling
 def make_indices(vocab):
     vocab_list = sorted(vocab)
-    vocab_list.append(unk)
-    word2index = {}
-    index2word = {}
-    for index, word in enumerate(vocab_list):
-        word2index[word] = index
-        index2word[index] = word
-    vocab.add(unk)
-    return vocab, word2index, index2word
+    # Add UNK token at index 0 for consistent handling
+    vocab_list = [unk] + vocab_list
+    return {
+        "word2index": {word: idx for idx, word in enumerate(vocab_list)},
+        "index2word": vocab_list,
+        "vocab_size": len(vocab_list)
+    }
 
 def convert_to_vector(data, word2index):
     vectorized_data = []
@@ -132,7 +143,9 @@ if __name__ == '__main__':
     print("========== Loading data ==========\n")
     train_data, valid_data, test_data = get_data()
     vocab = make_vocab(train_data)
-    vocab, word2index, index2word = make_indices(vocab)
+    indices = make_indices(vocab)
+    word2index = indices["word2index"]
+    index2word = indices["index2word"]
 
     """"#Compute TF-IDF
     print("========== Computing TF-TDF ==========")
@@ -177,6 +190,7 @@ if __name__ == '__main__':
     print("========== Building SVM model ==========\n")
     # initialize model
     svm_model = SupportVectorClassifier()
+    svm_model.set_word_index(word2index)
 
     print("---------- Vectorizing data for SVM ----------")
     start_time = perf_counter()
@@ -197,19 +211,26 @@ if __name__ == '__main__':
     print("---------- Testing model -----------")
     start_time = perf_counter()
 
-    prediction, confidence, keywords = svm_model.predict(test_data_vector)
-    count = 0
     accurate = 0
     with open("./svm.csv", 'w', newline='') as csvfile:
         writer = csv.writer(csvfile)
-        writer.writerow(["message", "pred_label", "label", "confidence"])
-        for i in range(len(test_data_vector)):
-            writer.writerow([test_data[i][0], prediction[i], test_data[i][1], confidence[i], keywords[i]])
-            if prediction[i] == test_data[i][1]:
+        writer.writerow(["message", "pred_label", "label", "confidence", "keywords"])
+
+        for i, (vector, true_label) in enumerate(test_data_vector):
+            # Extract message text from original test data
+            message = test_data[i][0]
+
+            # Get prediction for single vector
+            pred_label, confidence, keywords = svm_model.predict(vector)
+
+            # Write results
+            writer.writerow([message, pred_label, true_label, confidence, keywords])
+
+            if pred_label == true_label:
                 accurate += 1
-            count += 1
-    end_time = perf_counter()
-    print("Test accuracy: ", accurate / count)
+
+    print("Test accuracy: ", accurate / len(test_data_vector))
+
     print(f"Testing time:  {end_time - start_time:.4f} seconds\n")
 
     #BERT model

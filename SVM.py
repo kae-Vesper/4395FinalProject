@@ -1,6 +1,7 @@
 from sklearn.svm import SVC
 import numpy as np
 import torch
+from scipy.sparse import csr_matrix
 
 class SupportVectorClassifier:
     def __init__(self):
@@ -13,16 +14,16 @@ class SupportVectorClassifier:
         training_data: List of (torch.Tensor, label)
         validation_data: List of (torch.Tensor, label)
         """
-        X_train = torch.stack([vec for vec, _ in training_data]).numpy()
+        x_train = csr_matrix([vec.numpy() for vec, _ in training_data])
         y_train = np.array([label for _, label in training_data])
-        X_val = torch.stack([vec for vec, _ in validation_data]).numpy()
+        x_val = csr_matrix([vec.numpy() for vec, _ in validation_data])
         y_val = np.array([label for _, label in validation_data])
 
-        self.model.fit(X_train, y_train)
+        self.model.fit(x_train, y_train)
 
-        train_acc = np.mean(self.model.predict(X_train) == y_train)
-        val_acc = np.mean(self.model.predict(X_val) == y_val)
-        self.word_weights = self.model.coef_[0]
+        train_acc = np.mean(self.model.predict(x_train) == y_train)
+        val_acc = np.mean(self.model.predict(x_val) == y_val)
+        self.word_weights = self.model.coef_[0].toarray().flatten()
 
         print(f"[SVM] Training Accuracy: {train_acc:.3f}")
         print(f"[SVM] Validation Accuracy: {val_acc:.3f}")
@@ -34,18 +35,19 @@ class SupportVectorClassifier:
         """
         self.word_index = {idx: word for word, idx in word2idx.items()}
 
-    def predict(self, tfidf_vector):
+    def predict(self, vector):
         """
         tfidf_vector: torch.Tensor of shape (vocab_size,)
         Returns: (predicted label, confidence, top words)
         """
-        np_vec = tfidf_vector.numpy().reshape(1, -1)
+        np_vec = vector.numpy().reshape(1, -1)
         prob_dist = self.model.predict_proba(np_vec)[0]
         prediction = self.model.predict(np_vec)[0]
         confidence = round(float(np.max(prob_dist)), 3)
 
-        influences = tfidf_vector.numpy() * self.word_weights
+        reshaped_weights = self.word_weights.squeeze()
+        influences = vector.numpy() * reshaped_weights
         top_indices = influences.argsort()[-5:][::-1]
-        keywords = [self.word_index[i] for i in top_indices if tfidf_vector[i] > 0]
+        keywords = [self.word_index[i] for i in top_indices if vector[i] > 0]
 
         return prediction, confidence, keywords
