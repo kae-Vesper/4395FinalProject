@@ -7,6 +7,7 @@ import csv
 import math
 import string
 from collections import defaultdict
+from tqdm import tqdm
 
 unk = '<UNK>'
 
@@ -98,7 +99,7 @@ class LogisticRegressionModel(nn.Module):
         for epoch in range(epochs):
             epoch_loss = 0
             print(f"Starting epoch {epoch+1}")
-            for x, y in train_data:
+            for x, y in tqdm(train_data, desc=f"Training epoch {epoch+1}", leave=True):
                 y = torch.tensor([y], dtype=torch.float32)
                 optimizer.zero_grad()
                 pred = self.forward(x)
@@ -111,7 +112,7 @@ class LogisticRegressionModel(nn.Module):
 
     def evaluate(self, data):
         correct = 0
-        for x, y in data:
+        for x, y in tqdm(data, desc="Validating", leave=True):
             pred_label = 1 if self.forward(x).item() > 0.5 else 0
             if pred_label == y:
                 correct += 1
@@ -121,19 +122,27 @@ class LogisticRegressionModel(nn.Module):
         # Create reverse index mapping
         index2word = {i: word for word, i in word2index.items()}
 
-        # Get non-zero indices and scores
+        # Get non-zero elements (actual words in message)
         non_zero_indices = torch.nonzero(message_tensor).squeeze()
         impactful_words = []
 
-        # Convert tensor to CPU for numpy conversion if needed
-        message_tensor = message_tensor.cpu()
+        if non_zero_indices.numel() > 0:  # Only process if words exist
+            # Handle single-word case
+            if non_zero_indices.dim() == 0:
+                non_zero_indices = non_zero_indices.unsqueeze(0)
 
-        # Extract top impactful words using weight matrix
-        weights = self.linear.weight[0].detach()
-        top_indices = torch.argsort(torch.abs(weights), descending=True)[:5]
+            # Calculate word impacts using both model weights AND message TF-IDF values
+            weights = self.linear.weight.squeeze().detach()
+            tfidf_values = message_tensor[non_zero_indices]
+            word_impacts = weights[non_zero_indices] * tfidf_values
 
-        impactful_words = [index2word[idx.item()] for idx in top_indices
-                           if idx.item() in index2word]
+            # Get top 5 impactful words for THIS message
+            top_indices = torch.argsort(torch.abs(word_impacts), descending=True)[:5]
+            impactful_words = [
+                index2word[non_zero_indices[i].item()]
+                for i in top_indices
+                if non_zero_indices[i].item() in index2word
+            ]
 
         # Get prediction
         pred_confidence = self.forward(message_tensor).item()
@@ -148,7 +157,7 @@ def test_model(name, model, test_data, test_data_vector, word2index):
         writer.writerow(["message", "pred_label", "label", "confidence", "impactful words"])
 
         i=0
-        for message, label in test_data_vector:
+        for message, label in tqdm(test_data_vector, desc="Testing", leave=False):
             pred_label, confidence, words = model.test(message, word2index)
             if pred_label == label:
                 correct += 1

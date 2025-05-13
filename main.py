@@ -9,6 +9,7 @@ from collections import defaultdict
 from SVM import SupportVectorClassifier
 from tdifd import LogisticRegressionModel
 from BERT import BERTModel
+from tqdm import tqdm
 
 unk = '<UNK>'
 
@@ -111,7 +112,7 @@ def convert_to_vector(data, word2index):
 def convert_to_tf_vector(data, word2index, vocab):
     vectorized_data = []
     for document, y in data:
-        vector = torch.zeros(len(vocab))
+        vector = torch.zeros(len(vocab)+1)
         for word, score in document.items():
             if word in word2index:
                 vector[word2index[word]] = score
@@ -126,7 +127,7 @@ def test_model(name, model, test_data, test_data_vector, word2index):
         writer.writerow(["message", "pred_label", "label", "confidence", "impactful words"])
 
         i=0
-        for message, label in test_data_vector:
+        for message, label in tqdm(test_data_vector, desc="Testing", leave=True):
             pred_label, confidence, words = model.test(message,word2index)
             if pred_label == label:
                 accurate += 1
@@ -137,7 +138,7 @@ def test_model(name, model, test_data, test_data_vector, word2index):
 if __name__ == '__main__':
     #hyperparameters
     hidden_dim = 256
-    epochs = 2
+    epochs = 10
 
     #load data
     print("========== Loading data ==========\n")
@@ -147,7 +148,7 @@ if __name__ == '__main__':
     word2index = indices["word2index"]
     index2word = indices["index2word"]
 
-    """"#Compute TF-IDF
+    #Compute TF-IDF
     print("========== Computing TF-TDF ==========")
     start_time = perf_counter()
     train_data_vector = compute_tf_idf(train_data)
@@ -168,7 +169,7 @@ if __name__ == '__main__':
     #logical regression model
     print("========== Building logical regression model ==========\n")
     #initialize model
-    lr_model = LogisticRegressionModel(len(vocab))
+    lr_model = LogisticRegressionModel(len(vocab)+1)
 
     #train
     print("---------- Training model ----------")
@@ -184,7 +185,7 @@ if __name__ == '__main__':
     test_acc = test_model("Logical_Regression_Model", lr_model, test_data, test_data_vector, word2index)
     end_time = perf_counter()
     print(f"Test accuracy: {test_acc:.2f}")
-    print(f"Testing time:  {end_time-start_time:.4f} seconds\n")"""
+    print(f"Testing time:  {end_time-start_time:.4f} seconds\n")
 
     #SVM model
     print("========== Building SVM model ==========\n")
@@ -241,41 +242,45 @@ if __name__ == '__main__':
     #vectorizing data for bert model
     print("---------- Vectorizing data for BERT ----------")
     start_time = perf_counter()
-    train_data_vector = []
-    valid_data_vector = []
-    test_data_vector = []
-    for document, y in train_data:
-        vector = torch.zeros(len(word2index))
-        for word in document:
-            index = word2index.get(word, word2index[unk])
-            vector[index] += 1
-        train_data_vector.append((vector, y))
-    for document, y in valid_data:
-        vector = torch.zeros(len(word2index))
-        for word in document:
-            index = word2index.get(word, word2index[unk])
-            vector[index] += 1
-        valid_data_vector.append((vector, y))
-    for document, y in test_data:
-        vector = torch.zeros(len(word2index))
-        for word in document:
-            index = word2index.get(word, word2index[unk])
-            vector[index] += 1
-        test_data_vector.append((vector, y))
+    train_texts = [' '.join(doc) for doc, label in train_data]
+    train_labels = [label for doc, label in train_data]
+    valid_texts = [' '.join(doc) for doc, label in valid_data]
+    valid_labels = [label for doc, label in valid_data]
+    test_texts = [' '.join(doc) for doc, label in test_data]
+    test_labels = [label for doc, label in test_data]
     end_time = perf_counter()
     print(f"Vectorization time: {end_time - start_time:.4f} seconds\n")
 
     # train
     print("---------- Training model ----------")
     start_time = perf_counter()
-    bert_model.train(train_data_vector, valid_data_vector, epochs)
+    bert_model.train((train_texts, train_labels), (valid_texts, valid_labels), epochs)
     end_time = perf_counter()
     print(f"Training time:  {end_time - start_time:.4f} seconds\n")
 
     # test
     print("---------- Testing model -----------")
     start_time = perf_counter()
-    test_acc = bert_model.test(test_data_vector)
+
+    # Get detailed predictions
+    predictions = bert_model.test((test_texts, test_labels), return_details=True)
+
+    # Write results to CSV
+    with open("./bert.csv", 'w', newline='', encoding='utf-8') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(["message", "pred_label", "label", "confidence", "impactful_words"])
+
+        for text, pred_label, confidence, true_label in tqdm(predictions, desc="building csv", leave=True):
+            impactful_words = bert_model.get_word_impacts(text, true_label)
+            impactful_words = [item[0] for item in impactful_words]
+
+            writer.writerow([
+                text,
+                pred_label,
+                true_label,
+                f"{confidence:.4f}",
+                impactful_words
+            ])
+
     end_time = perf_counter()
-    print("Test accuracy: ", test_acc)
-    print(f"Testing time:  {end_time - start_time:.4f} seconds")
+    print(f"Testing time: {end_time - start_time:.4f} seconds")

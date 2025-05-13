@@ -4,14 +4,13 @@ from torch.utils.data import DataLoader, TensorDataset
 from sklearn.metrics import accuracy_score
 from torch.optim import AdamW
 from transformers import get_linear_schedule_with_warmup
-
+from tqdm import tqdm
 
 class BERTModel:
     def __init__(self, model_name='bert-base-uncased', num_labels=2, weight_decay=0.01):
         # Initialize the BERT model and tokenizer with increased dropout for regularization
         self.model = BertForSequenceClassification.from_pretrained(
             model_name, num_labels=num_labels,
-            hidden_dropout_prob=0.5,  # Increased dropout rate to 0.5 for better regularization
             output_attentions=False, output_hidden_states=False
         )
         self.tokenizer = BertTokenizer.from_pretrained(model_name)
@@ -21,6 +20,37 @@ class BERTModel:
 
         # Initialize optimizer with weight decay for regularization
         self.optimizer = AdamW(self.model.parameters(), lr=2e-5, weight_decay=weight_decay)  # Fine-tuned learning rate
+
+    def get_word_impacts(self, text, true_label):
+        inputs = self.tokenizer(text, return_tensors="pt", truncation=True, padding=True)
+        inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
+
+        self.model.eval()
+
+        # Create embeddings and enable gradients
+        embeddings = self.model.bert.embeddings.word_embeddings(inputs['input_ids'])
+        embeddings.requires_grad_()
+        embeddings.retain_grad()
+
+        outputs = self.model(
+            inputs_embeds=embeddings,
+            attention_mask=inputs['attention_mask'],
+            labels=torch.tensor([true_label]).to(self.model.device)
+        )
+
+        loss = outputs.loss
+        loss.backward()
+
+        # Calculate token importance scores
+        gradients = embeddings.grad.abs().sum(dim=-1).squeeze(0).cpu().numpy()
+        tokens = self.tokenizer.convert_ids_to_tokens(inputs['input_ids'][0])
+
+        word_scores = []
+        for token, score in zip(tokens, gradients):
+            if token not in ['[CLS]', '[SEP]', '[PAD]']:
+                word_scores.append((token.replace('##', ''), float(score)))
+
+        return sorted(word_scores, key=lambda x: -x[1])[:5]
 
     def train(self, train_data, val_data, epochs=15, batch_size=32, max_grad_norm=1.0):
         train_texts, train_labels = train_data
@@ -54,9 +84,10 @@ class BERTModel:
 
         # Training loop
         for epoch in range(epochs):
+            print(f"Starting epoch {epoch + 1}")
             self.model.train()
             total_loss = 0
-            for batch in train_loader:
+            for batch in tqdm(train_loader, desc=f"epoch {epoch+1} training", leave=True):
                 self.optimizer.zero_grad()
                 input_ids, attention_mask, labels = [item.to('cuda' if torch.cuda.is_available() else 'cpu') for item in
                                                      batch]
@@ -90,7 +121,7 @@ class BERTModel:
         val_preds = []
         val_labels = []
         with torch.no_grad():
-            for batch in val_loader:
+            for batch in tqdm(val_loader, desc="Validating data", leave=True):
                 input_ids, attention_mask, labels = [item.to('cuda' if torch.cuda.is_available() else 'cpu') for item in
                                                      batch]
                 outputs = self.model(input_ids=input_ids, attention_mask=attention_mask)
@@ -103,7 +134,7 @@ class BERTModel:
         print(f"Validation Accuracy: {val_accuracy:.4f}")
         return val_accuracy
 
-    def test(self, test_data, batch_size=32):
+    def test(self, test_data, batch_size=32, return_details=False):
         test_texts, test_labels = test_data
         test_encodings = self.tokenizer(test_texts, truncation=True, padding=True, max_length=512)
         test_dataset = TensorDataset(torch.tensor(test_encodings['input_ids']),
@@ -113,17 +144,27 @@ class BERTModel:
 
         self.model.eval()
         test_preds = []
-        test_labels = []
+        confidences = []
+        all_texts = []
+
         with torch.no_grad():
-            for batch in test_loader:
+            for batch in tqdm(test_loader, desc="Testing data", leave=True):
                 input_ids, attention_mask, labels = [item.to('cuda' if torch.cuda.is_available() else 'cpu') for item in
                                                      batch]
                 outputs = self.model(input_ids=input_ids, attention_mask=attention_mask)
                 logits = outputs.logits
-                preds = torch.argmax(logits, dim=-1)
+                probs = torch.nn.functional.softmax(logits, dim=-1)
+
+                max_probs, preds = torch.max(probs, dim=-1)
                 test_preds.extend(preds.cpu().numpy())
-                test_labels.extend(labels.cpu().numpy())
+                confidences.extend(max_probs.cpu().numpy())
+
+                batch_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids]
+                all_texts.extend(batch_texts)
 
         test_accuracy = accuracy_score(test_labels, test_preds)
         print(f"Test Accuracy: {test_accuracy:.4f}")
+
+        if return_details:
+            return list(zip(all_texts, confidences, test_preds, test_labels))
         return test_accuracy
